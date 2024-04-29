@@ -1,8 +1,12 @@
 
-    import Fastify from "fastify";
-    import Bcrypt from "bcrypt" ;
-    import { PrismaClient } from "@prisma/client";
-    import { match } from "assert";
+import Fastify from "fastify";
+import Bcrypt from "bcrypt" ;
+import { PrismaClient, User } from "@prisma/client";
+import { match } from "assert";
+import jwt from "jsonwebtoken"
+import { json } from "stream/consumers";
+import { secret } from "./Const/security_passwords";
+import { authMiddleware } from "./middleware/auth";
 
 
     const prisma = new PrismaClient();
@@ -11,20 +15,13 @@
     const validpassword = /[A-Za-z\d@$!%*?&]{8,}/;
 
 
-    interface IUser {
-        id?: string
-        name: string;
-        email: string;
-        password: string;
-        contact: string;
-    }
-
-    interface IUpdateUser extends IUser{
+    interface IUpdateUser extends User{
         newPassword: string;
-        oldPassword: string;
+        password: string;
+        surname: string;
     }
 
-    const db = new Map<String, IUser>();
+    const db = new Map<String, User>();
 
     const fastify = Fastify();
 
@@ -34,7 +31,7 @@
 
 
     fastify.post('/user', async (request, reply) =>{
-        const {name, email, password, contact} = request.body as IUser;
+        const {name, email, password, contact} = request.body as User;
 
         try {
             console.log({name, email, password, contact});
@@ -64,11 +61,11 @@
                     password: hashedPassword
                     
                 }
-            })
+            });
 
          reply.send({
                 message:"User created successfuly!",
-                user: user,
+                user: returnUser(user),
             });
             
         } catch (error) {
@@ -80,51 +77,84 @@
 
     });
 
-    fastify.put('/user', (request, reply) =>{
-        const {id, name, email, newPassword, oldPassword, contact} = request.body as IUpdateUser;
-    
+    fastify.put('/user',  {preHandler: authMiddleware}, async (request, reply) =>{
+        const {id, name, surname, email, newPassword, password, contact} = request.body as IUpdateUser;
 
         try {
-            if (!id) throw new Error("Error on authentication!");
             
-            const user = db.get(id);
+            if(!request.headers.authorization) throw new Error("Token not found");
+
+            const user = await prisma.user.findUnique({where:{id}});
+
+            const splited = request.headers.authorization.split(" ");
+            console.log(splited)
+
+            if (!id) throw new Error("Error on authentication!");
 
             if (!user) throw new Error("Error on authentication!");
 
-            if(newPassword){
-                if(!oldPassword) throw new Error("Please, send the old password!");
-                if (user.password !== oldPassword) throw new Error("Old password is incorrect!");
+            if(newPassword || email){
+                if(!password) throw new Error("Please, send the old password!");
+               
+                const match = await Bcrypt.compareSync(password, user.password)
+
+                if (!match) throw new Error("Old password is incorrect!");
                 
             }
 
-            const newUser:IUser = {
-                id: id? id : user.id,
-                email: email? email :  user.email, 
-                name: name? name : user.name, 
-                password: newPassword? newPassword : user.password, 
-                contact: contact? contact : user.contact
-            };
-            console.log(newUser);
-            db.set(id, newUser)
+            if (newPassword){
+                const salt = Bcrypt.genSaltSync();
+                const hash = Bcrypt.hashSync(newPassword, salt)
+                await prisma.user.update({
+                    where: {id}, 
+                    data: {password: hash},
+                });
+    
+            }
 
-    return reply.send({
-        message : "User updated successfully!",
-        user: newUser
-    });
+            const updatedUser = await prisma.user.update({
+                where: {id}, 
+                data: {name, /*surname*/ email, contact},
+            })
+
+            return reply.send({
+                message : "User updated successfully!",
+                data: {user: returnUser(user)},
+            });
+
+                } catch (error) {
+                    //console.log(erro);
+
+                    reply.send(error);
+                }
+            });
+
+    fastify.delete('/user/:id', async (request, reply) => {
+        const {id} = request.params as {id:string};
+
+        try {
+            if (!id) throw new Error("Error on authentication!");
+           
+            const user = await prisma.user.findUnique({where: {id}})
+
+            if (!user) throw new Error("Error on authentication!");
+
+            const deletedUser = await prisma.user.delete({where: {id}})
+            
+            return reply.send({
+                message : "User deleted successfully!",
+                user: returnUser(deletedUser),
+            });
 
         } catch (error) {
-            //console.log(erro);
+            console.log(error);
 
-            reply.send(error);
+            reply.send(error);   
         }
     });
 
-    fastify.delete('/user', (request, reply) => {
-
-    });
-
     fastify.post('/auth', async (request, reply) => {
-        const {email, password} = request.body as IUser;
+        const {email, password} = request.body as User;
 
         try {
             
@@ -140,9 +170,11 @@
 
             if (!match) throw new Error("Email or password is incorrect!");
 
+            const token = jwt.sign({id: user.id, name: user.name}, secret, {expiresIn: "7d"})
+
             return reply.send({
                 message : "Ok!",
-                user: user
+                data: {user: returnUser(user), token}
             });
             
             
@@ -154,7 +186,7 @@
     });
 
     fastify.post('/log', async (request, reply) => {
-        const {email, password} = request.body as IUser
+        const {email, password} = request.body as User
         const user = await prisma.user.findFirst({where:{email}});
 
         if(!user) 
@@ -169,3 +201,9 @@
         if (err) throw err;
         console.log("Server is now listening on 3000");
     });
+
+
+    function returnUser(user: User){
+        const {password, ...rest} = user;
+        return rest;
+    }
