@@ -18,5 +18,64 @@ model User {
   contact String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  restaurant restaurant[]
+  PaymentLog paymentLog[]
+}
 
+model restaurant {
+  id String @id @default(uuid())
+  name String
+  latitude String
+  longitude String
+  contact String
+  email String 
+  description String?
+  hallal Boolean
+  menuItems menuItem[]
+  User User @relation (fields: [UserId], references: [id])
+  UserId String
+  @@map("Restaurant")
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model menuItem{
+  id String @unique @default(uuid())
+  name String
+  description String?
+  category String
+  amount Decimal
+  time Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  restaurant restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  Cart cart[]
+  @@map("MenuItem")
+}
+
+model paymentLog{
+   id String @unique @default(uuid())
+   phoneNumber String
+   amount Decimal
+   reverseState Boolean @default(false)
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+   User User @relation(fields: [UserId], references: [id])
+   UserId String
+   Cart cart?
+   @@map("PaymentLog")
+}
+
+model cart {
+   id String @unique @default(uuid())
+   amount Decimal
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+   menuItems menuItem @relation(fields:[menuItemsId], references: [id])
+   menuItemsId String
+   @@id([menuItemsId])
+   PaymentLog paymentLog @relation(fields: [PaymentLogId], references: [id])
+   PaymentLogId String @unique
+   @@map("Cart")
 }

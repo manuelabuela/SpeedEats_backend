@@ -1,35 +1,29 @@
 import { FastifyError, FastifyReply, FastifyRequest } from "fastify";
-import jwt from "jsonwebtoken"
-import { secret } from "../Const/security_passwords";
+import jwt from "jsonwebtoken";
+import { secret } from "../const/security_passwords";
 
-export async function authMiddleware (
-    request: FastifyRequest, 
-    reply: FastifyReply, 
-    done: (error?: FastifyError) => void){
+export function authMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  done: (error?: FastifyError) => void,
+) {
 
-    const userId = request.userId
+  try {
+    const auth = request.headers.authorization;
 
-    console.log(userId)
+    if (!auth) throw new Error("Token not found!");
 
-    try {
-        const auth = request.headers.authorization
+    const [__, token] = auth.split(" ");
 
-        if(!auth) throw new Error("Token not found!");
-        
-        const [__, token] =  auth.split(" ")
+    if (!token) throw new Error("Token not found!");
 
-        if(!token) throw new Error("Token not found!");
+    const { id } = jwt.verify(token, secret) as { id: string };
 
-        const {id} = jwt.verify(token, secret) as {id: string}
+    request.userId = id;
 
-        request.userId = id;
-
-        done();
-        
-    } catch (error) {
-        console.log(error);
-        reply.send(error)
-    }
-
+    done();
+  } catch (error) {
+    console.log(error);
+    reply.send(error);
+  }
 }
- 
